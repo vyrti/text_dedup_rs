@@ -59,23 +59,18 @@ unsafe fn avx2_path(features: &HashMap<Vec<u8>, i32>, v: &mut [i32], hashbits: u
 
         let mut i = 0;
         while i <= hashbits.saturating_sub(8) {
-            let seeds = _mm256_set_epi64x(
-                (i + 3) as i64, (i + 2) as i64, (i + 1) as i64, (i + 0) as i64
-            );
-
-            // This part is more complex to vectorize perfectly in Rust without more advanced libraries
-            // For simplicity and correctness, we will do a small loop here. A more optimized version
-            // would use AVX512 gather instructions or other tricks.
-            // Let's replicate the C++ logic as closely as possible.
-             let prng_hash = _mm256_set_epi32(
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 7) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 6) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 5) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 4) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 3) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 2) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 1) as u64) as i32,
-                xxh3_64_with_seed(&feature_hash.to_le_bytes(), i as u64) as i32,
+            // Pre-compute all hash values to reduce xxh3 call overhead
+            let hash_0 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), i as u64) as i32;
+            let hash_1 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 1) as u64) as i32;
+            let hash_2 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 2) as u64) as i32;
+            let hash_3 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 3) as u64) as i32;
+            let hash_4 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 4) as u64) as i32;
+            let hash_5 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 5) as u64) as i32;
+            let hash_6 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 6) as u64) as i32;
+            let hash_7 = xxh3_64_with_seed(&feature_hash.to_le_bytes(), (i + 7) as u64) as i32;
+            
+            let prng_hash = _mm256_set_epi32(
+                hash_7, hash_6, hash_5, hash_4, hash_3, hash_2, hash_1, hash_0
             );
 
             let v_current = _mm256_loadu_si256(v.as_ptr().add(i) as *const __m256i);

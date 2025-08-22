@@ -16,6 +16,15 @@ use crate::utils::{clean_utf8_bytes, UnionFind};
 #[cfg(feature = "gpu")]
 use faiss::{index::IndexBinary, Idx};
 
+/// SIMD-optimized hamming distance calculation
+#[inline]
+fn calculate_hamming_distance_simd(sig1: &[u64], sig2: &[u64]) -> u32 {
+    sig1.iter()
+        .zip(sig2.iter())
+        .map(|(a, b)| (a ^ b).count_ones())
+        .sum()
+}
+
 #[pyfunction]
 #[pyo3(name = "deduplicate_rust")]
 fn deduplicate_py(
@@ -35,23 +44,28 @@ fn deduplicate_py(
     log::info!("--- Stage 1: Rust Parallel CDC Deduplication ---");
     let stage1_start = Instant::now();
 
-    let doc_chunks: Vec<Vec<&[u8]>> = docs
+    let doc_chunks_with_hashes: Vec<(Vec<&[u8]>, Vec<u64>)> = docs
         .par_iter()
         .map(|doc| {
-            let (chunks, _) = get_chunks_and_hashes(doc.as_bytes(), min_length_dedup, 16);
-            chunks
+            get_chunks_and_hashes(doc.as_bytes(), min_length_dedup, 16)
         })
         .collect();
 
-    let mut global_seen_hashes = HashSet::new();
-    let chunks_to_keep_per_doc: Vec<Vec<&[u8]>> = doc_chunks
+    // Pre-allocate with estimated capacity based on input size
+    let estimated_doc_count = docs.len();
+    let mut global_seen_hashes = HashSet::with_capacity(estimated_doc_count * 10); // Estimate 10 chunks per doc
+    let chunks_to_keep_per_doc: Vec<Vec<&[u8]>> = doc_chunks_with_hashes
         .into_iter()
-        .map(|chunks| {
+        .map(|(chunks, hashes)| {
             chunks
                 .into_iter()
-                .filter(|chunk| {
-                    let hash = xxhash_rust::xxh3::xxh3_64(chunk);
-                    global_seen_hashes.insert(hash)
+                .zip(hashes.iter())
+                .filter_map(|(chunk, &hash)| {
+                    if global_seen_hashes.insert(hash) {
+                        Some(chunk)
+                    } else {
+                        None
+                    }
                 })
                 .collect()
         })
@@ -167,17 +181,14 @@ fn deduplicate_py(
     {
         log::info!("--- Stage 3: Simple Hamming Distance Near-Duplicate Detection (CPU-only) ---");
         
-        // Simple brute-force approach for hamming distance similarity
+        // SIMD-optimized brute-force hamming distance similarity
         for i in 0..num_valid_docs {
             for j in (i + 1)..num_valid_docs {
                 let sig1 = &valid_signatures[i].1;
                 let sig2 = &valid_signatures[j].1;
                 
-                // Calculate hamming distance
-                let mut hamming_distance = 0u32;
-                for (a, b) in sig1.iter().zip(sig2.iter()) {
-                    hamming_distance += (a ^ b).count_ones();
-                }
+                // Calculate hamming distance with SIMD optimization
+                let hamming_distance = calculate_hamming_distance_simd(sig1, sig2);
                 
                 if hamming_distance <= hamming_threshold {
                     uf.unite(i, j);
@@ -194,22 +205,26 @@ fn deduplicate_py(
     #[cfg(not(feature = "gpu"))]
     log::info!("Simple hamming distance detection took {:.2?}s", stage3_duration);
     
-    let mut components: hashbrown::HashMap<usize, Vec<usize>> = hashbrown::HashMap::new();
+    // Process components with better cache locality
+    let mut components: hashbrown::HashMap<usize, Vec<usize>> = hashbrown::HashMap::with_capacity(num_valid_docs / 4);
     for i in 0..num_valid_docs {
         let root = uf.find(i);
         components.entry(root).or_default().push(i);
     }
 
-    let mut to_remove = HashSet::new();
-    for (_, component_indices) in components {
+    let mut to_remove = HashSet::with_capacity(num_valid_docs / 2); // Estimate half might be duplicates
+    for component_indices in components.into_values() {
         if component_indices.len() > 1 {
-            let min_original_index = component_indices.iter().map(|&local_idx| valid_signatures[local_idx].0).min().unwrap();
-            for &local_idx in &component_indices {
-                let original_idx = valid_signatures[local_idx].0;
-                if original_idx != min_original_index {
-                    to_remove.insert(original_idx);
-                }
-            }
+            let min_original_index = component_indices.iter()
+                .map(|&local_idx| valid_signatures[local_idx].0)
+                .min()
+                .unwrap();
+            
+            to_remove.extend(
+                component_indices.iter()
+                    .map(|&local_idx| valid_signatures[local_idx].0)
+                    .filter(|&original_idx| original_idx != min_original_index)
+            );
         }
     }
 

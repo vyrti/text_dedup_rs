@@ -1,0 +1,15 @@
+[build]
+# Enable native CPU optimizations for maximum performance
+rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-unknown-linux-gnu]
+# Linux-specific optimizations
+rustflags = ["-C", "target-cpu=native", "-C", "link-arg=-fuse-ld=lld"]
+
+[target.x86_64-apple-darwin]
+# macOS-specific optimizations  
+rustflags = ["-C", "target-cpu=native"]
+
+[target.aarch64-apple-darwin]
+# Apple Silicon optimizations
+rustflags = ["-C", "target-cpu=native"]
