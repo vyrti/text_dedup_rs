@@ -1,0 +1,6 @@
+datasets>=2.0.0
+faiss-cpu>=1.7.0 # or faiss-gpu if you have a compatible environment
+numpy>=1.20.0
+pandas>=2.0.0
+pyarrow>=10.0.0
+tqdm>=4.60.0

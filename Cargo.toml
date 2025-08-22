@@ -1,0 +1,38 @@
+[package]
+name = "dedup_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "dedup_rust_core"
+crate-type = ["cdylib"] # Compiles to a dynamic library for Python
+
+[dependencies]
+# Python bindings
+pyo3 = { version = "0.21.2", features = ["extension-module"] }
+
+# Parallelism
+rayon = "1.10.0"
+
+# High-performance hashing
+xxhash-rust = { version = "0.8.10", features = ["xxh3"] }
+
+# High-performance hash map/set, same as in Rust's std lib
+hashbrown = "0.14.5"
+
+# Faiss bindings - make sure Faiss is installed on your system
+# The "gpu" feature requires the Faiss GPU library. Remove if you only have CPU.
+faiss-rs = { version = "0.9.0", features = ["gpu"] }
+
+# Union-Find data structure
+petgraph = "0.6.5"
+
+# Logging for diagnostics
+log = "0.4.21"
+env_logger = "0.11.3"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
