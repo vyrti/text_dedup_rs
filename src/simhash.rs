@@ -24,10 +24,18 @@ pub fn get_document_simhash(text: &[u8], hashbits: usize) -> Vec<u64> {
     let mut v = vec![0i32; hashbits];
 
     // Stage 2: Calculate the weighted vector 'v'
-    if is_x86_feature_detected!("avx2") {
-        #[cfg(target_arch = "x86_64")]
-        unsafe { avx2_path(&features, &mut v, hashbits) };
-    } else {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if is_x86_feature_detected!("avx2") {
+            #[cfg(target_arch = "x86_64")]
+            unsafe { avx2_path(&features, &mut v, hashbits) };
+        } else {
+            scalar_path(&features, &mut v, hashbits);
+        }
+    }
+    
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+    {
         scalar_path(&features, &mut v, hashbits);
     }
 

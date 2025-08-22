@@ -20,16 +20,19 @@ xxhash-rust = { version = "0.8.10", features = ["xxh3"] }
 # High-performance hash map/set, same as in Rust's std lib
 hashbrown = "0.14.5"
 
-# Faiss bindings - make sure Faiss is installed on your system
-# The "gpu" feature requires the Faiss GPU library. Remove if you only have CPU.
-faiss-rs = { version = "0.9.0", features = ["gpu"] }
-
 # Union-Find data structure
 petgraph = "0.6.5"
 
 # Logging for diagnostics
 log = "0.4.21"
 env_logger = "0.11.3"
+
+# Faiss bindings - conditional on GPU feature
+faiss = { version = "0.12.1", optional = true }
+
+[features]
+default = []
+gpu = ["faiss"]
 
 [profile.release]
 lto = "fat"
